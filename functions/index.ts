@@ -62,7 +62,7 @@ function uploadToS3(name: string, data: any) {
 async function getSecret() {
   const { Parameter } = await ssm.send(
     new GetParameterCommand({
-      Name: Resource.githubTokenLink.name,
+      Name: Resource.githubToken.name,
       WithDecryption: true,
     }),
   );

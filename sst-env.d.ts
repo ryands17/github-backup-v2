@@ -9,7 +9,7 @@ declare module "sst" {
       "name": string
       "type": "sst.aws.Bucket"
     }
-    "githubTokenLink": {
+    "githubToken": {
       "name": string
       "type": "sst.sst.Linkable"
     }

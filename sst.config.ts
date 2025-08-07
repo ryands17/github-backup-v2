@@ -13,15 +13,15 @@ export default $config({
   async run() {
     const githubReposBucket = new sst.aws.Bucket('githubReposBucket');
 
-    const githubToken = new aws.ssm.Parameter('githubBackupToken', {
+    const githubBackupToken = new aws.ssm.Parameter('githubBackupToken', {
       name: '/gh-backup/token',
       description: 'Token for backing up GitHub repos',
       value: 'temp-value',
       type: 'SecureString',
     });
 
-    const githubTokenLink = new sst.Linkable('githubTokenLink', {
-      properties: { name: githubToken.name },
+    const githubToken = new sst.Linkable('githubToken', {
+      properties: { name: githubBackupToken.name },
     });
 
     new sst.aws.Cron('saveRepos', {
@@ -29,11 +29,11 @@ export default $config({
         handler: 'functions/index.handler',
         memory: '1792 MB',
         timeout: '15 minutes',
-        link: [githubReposBucket, githubTokenLink],
+        link: [githubReposBucket, githubToken],
         permissions: [
           {
             actions: ['ssm:GetParameter'],
-            resources: [githubToken.arn],
+            resources: [githubBackupToken.arn],
           },
           {
             actions: ['ssm:DescribeParameters'],
