@@ -27,6 +27,7 @@ export default $config({
     new sst.aws.Cron('saveRepos', {
       function: {
         handler: 'functions/index.handler',
+        runtime: 'nodejs22.x',
         memory: '1792 MB',
         timeout: '15 minutes',
         link: [githubReposBucket, githubToken],
