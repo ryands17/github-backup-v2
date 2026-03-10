@@ -8,22 +8,46 @@ import { GitHubFetchError, S3UploadError, SecretNotFoundError } from './errors';
 const ssm = new SSMClient();
 const s3 = new S3Client();
 
-export async function handler() {
-  console.info('Fetching token');
+export const handler = () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      yield* Console.info('Fetching token from SSM');
+      const token = yield* getSecret();
+      yield* Console.info('Token is valid. Starting to download repos');
 
-  await Effect.runPromise(
-    pipe(
-      getSecret(),
-      Effect.tap(() =>
-        Console.info('Token is valid. Starting to download repos'),
-      ),
-      Effect.andThen(downloadRepos),
-      Effect.tap(() => Console.info('Finished downloading repos')),
-    ),
+      yield* downloadRepos(token);
+      yield* Console.info('Finished downloading repos');
+    }),
   );
-}
 
-const PER_PAGE = 20;
+function downloadRepos(
+  token: string,
+): Effect.Effect<void, GitHubFetchError | S3UploadError> {
+  const PER_PAGE = 20;
+  const owner = 'ryands17';
+  const gh = new Octokit({ auth: token });
+
+  return Effect.gen(function* () {
+    const iterator = gh.paginate.iterator(gh.repos.listForAuthenticatedUser, {
+      visibility: 'all',
+      affiliation: 'owner',
+      per_page: PER_PAGE,
+    });
+
+    const stream = Stream.fromAsyncIterable(
+      iterator,
+      (error) => new GitHubFetchError({ message: String(error) }),
+    );
+
+    yield* Stream.runForEach(stream, (page) =>
+      Effect.forEach(
+        page.data.map((r) => ({ name: r.name, ref: r.default_branch })),
+        (repo) => downloadRepo(gh, owner, repo),
+        { concurrency: 4 },
+      ),
+    );
+  });
+}
 
 function downloadRepo(
   gh: Octokit,
@@ -44,33 +68,6 @@ function downloadRepo(
       Console.info(`Downloaded repo: ${repo.name}, now uploading to S3`),
     ),
     Effect.andThen((archive) => uploadToS3(repo.name, archive.data)),
-  );
-}
-
-function downloadRepos(
-  token: string,
-): Effect.Effect<void, GitHubFetchError | S3UploadError> {
-  const owner = 'ryands17';
-  const gh = new Octokit({ auth: token });
-
-  const iterator = gh.paginate.iterator(gh.repos.listForAuthenticatedUser, {
-    visibility: 'all',
-    affiliation: 'owner',
-    per_page: PER_PAGE,
-  });
-
-  return pipe(
-    Stream.fromAsyncIterable(
-      iterator,
-      (error) => new GitHubFetchError({ message: String(error) }),
-    ),
-    Stream.runForEach((page) =>
-      Effect.forEach(
-        page.data.map((r) => ({ name: r.name, ref: r.default_branch })),
-        (repo) => downloadRepo(gh, owner, repo),
-        { concurrency: 4 },
-      ),
-    ),
   );
 }
 
@@ -96,8 +93,8 @@ function uploadToS3(
 }
 
 function getSecret(): Effect.Effect<string, SecretNotFoundError> {
-  return pipe(
-    Effect.tryPromise({
+  return Effect.gen(function* () {
+    const { Parameter } = yield* Effect.tryPromise({
       try: () =>
         ssm.send(
           new GetParameterCommand({
@@ -106,15 +103,16 @@ function getSecret(): Effect.Effect<string, SecretNotFoundError> {
           }),
         ),
       catch: (error) => new SecretNotFoundError({ message: String(error) }),
-    }),
-    Effect.andThen(({ Parameter }) =>
-      Parameter?.Value
-        ? Effect.succeed(Parameter.Value)
-        : Effect.fail(
-            new SecretNotFoundError({
-              message: `Parameter ${Resource.githubToken.name} not found`,
-            }),
-          ),
-    ),
-  );
+    });
+
+    if (!Parameter?.Value) {
+      return yield* Effect.fail(
+        new SecretNotFoundError({
+          message: `Parameter ${Resource.githubToken.name} not found`,
+        }),
+      );
+    }
+
+    return Parameter.Value;
+  });
 }
