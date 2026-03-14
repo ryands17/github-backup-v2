@@ -4,6 +4,11 @@
     "lib": [
       "ESNext"
     ],
+    "plugins": [
+      {
+        "name": "@effect/language-service"
+      }
+    ],
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
